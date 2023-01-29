@@ -31,8 +31,12 @@
 #include <X11/Xutil.h>
 #include <X11/xpm.h>
 
+#ifdef __OpenBSD__
 #include <machine/apmvar.h>
 #define APMDEV "/dev/apm"
+#else
+#error "reading battery status is not supported on this platform"
+#endif
 
 #include "icons/icon_000.xpm"
 #include "icons/icon_001.xpm"
@@ -167,6 +171,15 @@ main(int argc, char* argv[])
 	if ((power.apmfd = open(APMDEV, O_RDONLY)) == -1)
 		err(1, "failed to open %s", APMDEV);
 
+	if (!(xinfo.dpy = XOpenDisplay(display)))
+		errx(1, "can't open display %s", XDisplayName(display));
+
+#ifdef __OpenBSD_
+	unveil("/", "");
+	unveil(NULL, NULL);
+	pledge("stdio");
+#endif
+
 	/* setup exit handler pipe that we'll poll on */
 	if (pipe2(exit_msg, O_CLOEXEC) != 0)
 		err(1, "pipe2");
@@ -176,8 +189,6 @@ main(int argc, char* argv[])
 	sigaction(SIGINT, &act, NULL);
 	sigaction(SIGHUP, &act, NULL);
 
-	if (!(xinfo.dpy = XOpenDisplay(display)))
-		errx(1, "can't open display %s", XDisplayName(display));
 	xinfo.screen = DefaultScreen(xinfo.dpy);
 	xinfo.win = XCreateSimpleWindow(xinfo.dpy,
 	    RootWindow(xinfo.dpy, xinfo.screen),
