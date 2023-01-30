@@ -154,10 +154,13 @@ main(int argc, char* argv[])
 	long sleep_secs;
 	int ch, i;
 
-	while ((ch = getopt(argc, argv, "d:")) != -1) {
+	while ((ch = getopt(argc, argv, "d:i:")) != -1) {
 		switch (ch) {
 		case 'd':
 			display = optarg;
+			break;
+		case 'i':
+			power_check_secs = atoi(optarg);
 			break;
 		default:
 			usage();
@@ -228,8 +231,10 @@ main(int argc, char* argv[])
 
 	update_power();
 
+	xinfo.hints.initial_state = IconicState;
+	xinfo.hints.flags |= StateHint;
+	XSetWMHints(xinfo.dpy, xinfo.win, &xinfo.hints);
 	XMapWindow(xinfo.dpy, xinfo.win);
-	XIconifyWindow(xinfo.dpy, xinfo.win, xinfo.screen);
 
 	memset(&pfd, 0, sizeof(pfd));
 	pfd[0].fd = ConnectionNumber(xinfo.dpy);
@@ -302,7 +307,7 @@ void
 usage(void)
 {
 	fprintf(stderr, "usage: %s %s\n", __progname,
-		"[-d display]");
+		"[-d display] [-i interval]");
 	exit(1);
 }
 
