@@ -332,6 +332,10 @@ update_power(void)
 
 	power.ac = (apm_info.ac_state == APM_AC_ON);
 
+	/* well timmy, sometimes batteries die a little bit when we use them */
+	if (power.ac && power.remaining >= 96)
+		power.remaining = 100;
+
 	if (power.ac != last_ac || power.remaining != last_remaining) {
 #ifdef DEBUG
 		printf("ac: %d, battery %d\n", power.ac, power.remaining);
