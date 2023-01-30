@@ -64,6 +64,7 @@
 #include "icons/icon_090.xpm"
 #include "icons/icon_095.xpm"
 #include "icons/icon_100.xpm"
+#include "icons/icon_charging.xpm"
 
 struct {
 	Display *dpy;
@@ -71,7 +72,6 @@ struct {
 	Window win;
 	XWMHints hints;
 	GC gc;
-	XGCValues gcv;
 } xinfo = { 0 };
 
 struct {
@@ -83,12 +83,12 @@ struct {
 struct icon_map_entry {
 	char **xpm;
 	int value;
+#define CHARGING_ICON_VALUE -1
 	Pixmap pm;
 	Pixmap pm_mask;
 	XpmAttributes pm_attrs;
-	Pixmap hidpi_pm;
-	Pixmap hidpi_pm_mask;
-	XpmAttributes hidpi_pm_attrs;
+	Pixmap charging_pm;
+	Pixmap charging_pm_mask;
 } icon_map[] = {
 #define ICON_ENTRY(val) { icon_##val##_xpm, val }
 	ICON_ENTRY(0),
@@ -117,11 +117,11 @@ struct icon_map_entry {
 	ICON_ENTRY(90),
 	ICON_ENTRY(95),
 	ICON_ENTRY(100),
+	{ icon_charging_xpm, CHARGING_ICON_VALUE },
 };
 
 const struct option longopts[] = {
 	{ "display",	required_argument,	NULL,	'd' },
-	{ "hidpi",	no_argument,		NULL,	'2' },
 	{ NULL,		0,			NULL,	0 }
 };
 
@@ -131,12 +131,12 @@ void		killer(int sig);
 void		usage(void);
 void		update_power(void);
 void		update_icon(void);
-void		double_pixmap(Pixmap, int, int, Pixmap *, int);
+void		build_charging_icon(struct icon_map_entry *);
 
 int		exit_msg[2];
 int		power_check_secs = 10;
-int		hidpi_icon = 0;
 struct timespec	last_power_check;
+struct icon_map_entry *charging_icon;
 
 #define WINDOW_WIDTH	200
 #define WINDOW_HEIGHT	100
@@ -146,6 +146,7 @@ main(int argc, char* argv[])
 {
 	XEvent event;
 	XSizeHints *hints;
+	XGCValues gcv;
 	struct pollfd pfd[2];
 	struct sigaction act;
 	struct timespec now, delta;
@@ -153,11 +154,8 @@ main(int argc, char* argv[])
 	long sleep_secs;
 	int ch, i;
 
-	while ((ch = getopt(argc, argv, "2d:")) != -1) {
+	while ((ch = getopt(argc, argv, "d:")) != -1) {
 		switch (ch) {
-		case '2':
-			hidpi_icon = 1;
-			break;
 		case 'd':
 			display = optarg;
 			break;
@@ -195,12 +193,12 @@ main(int argc, char* argv[])
 	    0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, 0,
 	    BlackPixel(xinfo.dpy, xinfo.screen),
 	    WhitePixel(xinfo.dpy, xinfo.screen));
-	xinfo.gcv.foreground = 1;
-	xinfo.gcv.background = 0;
+	gcv.foreground = 1;
+	gcv.background = 0;
 	xinfo.gc = XCreateGC(xinfo.dpy, xinfo.win, GCForeground | GCBackground,
-	    &xinfo.gcv);
+	    &gcv);
 
-	/* load XPMs and scale for hidpi icon and window */
+	/* load XPMs */
 	for (i = 0; i < sizeof(icon_map) / sizeof(icon_map[0]); i++) {
 		if (XpmCreatePixmapFromData(xinfo.dpy,
 		    RootWindow(xinfo.dpy, xinfo.screen),
@@ -208,16 +206,13 @@ main(int argc, char* argv[])
 		    &icon_map[i].pm_mask, &icon_map[i].pm_attrs) != 0)
 			errx(1, "XpmCreatePixmapFromData failed");
 
-		double_pixmap(icon_map[i].pm, icon_map[i].pm_attrs.width,
-		    icon_map[i].pm_attrs.height, &icon_map[i].hidpi_pm, 0);
-		double_pixmap(icon_map[i].pm_mask, icon_map[i].pm_attrs.width,
-		    icon_map[i].pm_attrs.height, &icon_map[i].hidpi_pm_mask,
-		    1);
-		memcpy(&icon_map[i].hidpi_pm_attrs, &icon_map[i].pm_attrs,
-		    sizeof(icon_map[i].hidpi_pm_attrs));
-		icon_map[i].hidpi_pm_attrs.width *= 2;
-		icon_map[i].hidpi_pm_attrs.height *= 2;
+		if (icon_map[i].value == CHARGING_ICON_VALUE)
+			charging_icon = &icon_map[i];
 	}
+
+	/* pre-compute charging icons */
+	for (i = 0; i < sizeof(icon_map) / sizeof(icon_map[0]); i++)
+		build_charging_icon(&icon_map[i]);
 
 	hints = XAllocSizeHints();
 	if (!hints)
@@ -231,10 +226,10 @@ main(int argc, char* argv[])
 	XSetWMNormalHints(xinfo.dpy, xinfo.win, hints);
 #endif
 
+	update_power();
+
 	XMapWindow(xinfo.dpy, xinfo.win);
 	XIconifyWindow(xinfo.dpy, xinfo.win, xinfo.screen);
-
-	update_power();
 
 	memset(&pfd, 0, sizeof(pfd));
 	pfd[0].fd = ConnectionNumber(xinfo.dpy);
@@ -280,10 +275,10 @@ main(int argc, char* argv[])
 			XFreePixmap(xinfo.dpy, icon_map[i].pm);
 		if (icon_map[i].pm_mask)
 			XFreePixmap(xinfo.dpy, icon_map[i].pm_mask);
-		if (icon_map[i].hidpi_pm)
-			XFreePixmap(xinfo.dpy, icon_map[i].hidpi_pm);
-		if (icon_map[i].hidpi_pm_mask)
-			XFreePixmap(xinfo.dpy, icon_map[i].hidpi_pm_mask);
+		if (icon_map[i].charging_pm)
+			XFreePixmap(xinfo.dpy, icon_map[i].charging_pm);
+		if (icon_map[i].charging_pm_mask)
+			XFreePixmap(xinfo.dpy, icon_map[i].charging_pm_mask);
 	}
 
 	XDestroyWindow(xinfo.dpy, xinfo.win);
@@ -307,7 +302,7 @@ void
 usage(void)
 {
 	fprintf(stderr, "usage: %s %s\n", __progname,
-		"[-d display] [-2]");
+		"[-d display]");
 	exit(1);
 }
 
@@ -347,7 +342,7 @@ update_icon(void)
 	XWindowAttributes xgwa;
 	char title[50];
 	char *titlep = (char *)&title;
-	int i, rc, icon = 0;
+	int i, rc, xo = 0, yo = 0, icon = 0;
 
 	if (power.ac) {
 		if (power.remaining >= 99)
@@ -366,17 +361,20 @@ update_icon(void)
 	XStoreName(xinfo.dpy, xinfo.win, title);
 
 	/* find the icon that matches our battery percentage */
-	for (i = sizeof(icon_map) / sizeof(icon_map[0]); i >= 0; i--) {
-		if (power.remaining <= icon_map[i].value) {
+	for (i = (sizeof(icon_map) / sizeof(icon_map[0])) - 1; i >= 0; i--) {
+		if (icon_map[i].value < 0)
+			continue;
+
+		if (power.remaining > icon_map[i].value) {
 			icon = i;
 			break;
 		}
 	}
 
 	/* update the icon */
-	if (hidpi_icon) {
-		xinfo.hints.icon_pixmap = icon_map[icon].hidpi_pm;
-		xinfo.hints.icon_mask = icon_map[icon].hidpi_pm_mask;
+	if (power.ac) {
+		xinfo.hints.icon_pixmap = icon_map[icon].charging_pm;
+		xinfo.hints.icon_mask = icon_map[icon].charging_pm_mask;
 	} else {
 		xinfo.hints.icon_pixmap = icon_map[icon].pm;
 		xinfo.hints.icon_mask = icon_map[icon].pm_mask;
@@ -384,72 +382,76 @@ update_icon(void)
 	xinfo.hints.flags = IconPixmapHint | IconMaskHint;
 	XSetWMHints(xinfo.dpy, xinfo.win, &xinfo.hints);
 
-	/* draw hidpi icon in center of window */
+	/* and draw it in the center of the window */
 	XGetWindowAttributes(xinfo.dpy, xinfo.win, &xgwa);
-	XSetFunction(xinfo.dpy, xinfo.gc, GXandInverted);
-	XSetBackground(xinfo.dpy, xinfo.gc, 0UL);
-	XSetForeground(xinfo.dpy, xinfo.gc, ~0UL);
-	XCopyPlane(xinfo.dpy, icon_map[icon].hidpi_pm_mask, xinfo.win,
-	    xinfo.gc, 0, 0,
-	    icon_map[icon].hidpi_pm_attrs.width,
-	    icon_map[icon].hidpi_pm_attrs.height,
-	    (xgwa.width / 2) - (icon_map[icon].hidpi_pm_attrs.width / 2),
-	    (xgwa.height / 2) - (icon_map[icon].hidpi_pm_attrs.height / 2),
-	    1UL);
-	XSetFunction(xinfo.dpy, xinfo.gc, GXor);
-	XCopyArea(xinfo.dpy, icon_map[icon].hidpi_pm,
-	    xinfo.win, xinfo.gc, 0, 0,
-	    icon_map[icon].hidpi_pm_attrs.width,
-	    icon_map[icon].hidpi_pm_attrs.height,
-	    (xgwa.width / 2) - (icon_map[icon].hidpi_pm_attrs.width / 2),
-	    (xgwa.height / 2) - (icon_map[icon].hidpi_pm_attrs.height / 2));
+	xo = (xgwa.width / 2) - (icon_map[icon].pm_attrs.width / 2);
+	yo = (xgwa.height / 2) - (icon_map[icon].pm_attrs.height / 2);
+	XSetClipMask(xinfo.dpy, xinfo.gc, (power.ac ?
+	    icon_map[icon].charging_pm_mask : icon_map[icon].pm_mask));
+	XSetClipOrigin(xinfo.dpy, xinfo.gc, xo, yo);
+	XClearWindow(xinfo.dpy, xinfo.win);
+	XSetFunction(xinfo.dpy, xinfo.gc, GXcopy);
+	XCopyArea(xinfo.dpy, (power.ac ? icon_map[icon].charging_pm :
+	    icon_map[icon].pm), xinfo.win, xinfo.gc,
+	    0, 0,
+	    icon_map[icon].pm_attrs.width,
+	    icon_map[icon].pm_attrs.height,
+	    xo, yo);
 }
 
 void
-double_pixmap(Pixmap src, int srcwidth, int srcheight, Pixmap *ret, int mask)
+build_charging_icon(struct icon_map_entry *icon)
 {
-	XImage *srcxi, *xi;
 	XWindowAttributes xgwa;
 	XGCValues gcv;
 	GC gc;
-	char *retbacking;
-	unsigned long v;
-	int y, x, xo, yo;
-	int width = srcwidth * 2;
-	int height = srcheight * 2;
-
-	srcxi = XGetImage(xinfo.dpy, src, 0, 0, srcwidth, srcheight, ~0,
-	    ZPixmap);
-
-	retbacking = malloc(width * height * 4);
-	xi = XCreateImage(xinfo.dpy, DefaultVisual(xinfo.dpy, xinfo.screen),
-	    (mask ? 1 : 24), (mask ? XYBitmap : ZPixmap), 0,
-	    (char *)retbacking, width, height, (mask ? 8 : 32), 0);
-	if (!xi)
-		errx(1, "XCreateImage failed");
-
-	for (y = 0, yo = 0; y < srcheight; y++) {
-		for (x = 0, xo = 0; x < srcwidth; x++) {
-			v = XGetPixel(srcxi, x, y);
-			XPutPixel(xi, xo, yo, v);
-			XPutPixel(xi, xo, yo + 1, v);
-			XPutPixel(xi, xo + 1, yo, v);
-			XPutPixel(xi, xo + 1, yo + 1, v);
-			xo += 2;
-		}
-		yo += 2;
-	}
+	int xo = 10;
 
 	XGetWindowAttributes(xinfo.dpy, xinfo.win, &xgwa);
-	*ret = XCreatePixmap(xinfo.dpy, RootWindow(xinfo.dpy, xinfo.screen),
-	    width, height, mask ? 1 : xgwa.depth);
+	icon->charging_pm = XCreatePixmap(xinfo.dpy,
+	    RootWindow(xinfo.dpy, xinfo.screen),
+	    icon->pm_attrs.width, icon->pm_attrs.height,
+	    xgwa.depth);
+	icon->charging_pm_mask = XCreatePixmap(xinfo.dpy,
+	    RootWindow(xinfo.dpy, xinfo.screen),
+	    icon->pm_attrs.width, icon->pm_attrs.height,
+	    1);
 
 	gcv.foreground = 1;
 	gcv.background = 0;
-	gc = XCreateGC(xinfo.dpy, *ret, GCForeground | GCBackground, &gcv);
-	XPutImage(xinfo.dpy, *ret, gc, xi, 0, 0, 0, 0, width, height);
+	gc = XCreateGC(xinfo.dpy, icon->charging_pm_mask,
+	    GCForeground | GCBackground, &gcv);
 
-	XDestroyImage(xi); /* this will free retbacking */
-	XDestroyImage(srcxi);
+	/* copy masks */
+	XCopyPlane(xinfo.dpy, icon->pm_mask, icon->charging_pm_mask,
+	    gc,
+	    0, 0,
+	    icon->pm_attrs.width, icon->pm_attrs.height,
+	    xo, 0,
+	    1);
+	XSetFunction(xinfo.dpy, gc, GXor);
+	XCopyPlane(xinfo.dpy, charging_icon->pm_mask, icon->charging_pm_mask,
+	    gc,
+	    0, 0,
+	    charging_icon->pm_attrs.width,
+	    charging_icon->pm_attrs.height,
+	    0, 0,
+	    1);
+
+	/* copy icons */
+	XSetFunction(xinfo.dpy, xinfo.gc, GXcopy);
+	XCopyArea(xinfo.dpy, icon->pm, icon->charging_pm, xinfo.gc,
+	    0, 0,
+	    icon->pm_attrs.width,
+	    icon->pm_attrs.height,
+	    xo, 0);
+	XSetClipMask(xinfo.dpy, xinfo.gc, charging_icon->pm_mask);
+	XCopyArea(xinfo.dpy, charging_icon->pm, icon->charging_pm, xinfo.gc,
+	    0, 0,
+	    charging_icon->pm_attrs.width,
+	    charging_icon->pm_attrs.height,
+	    0, 0);
+	XSetClipMask(xinfo.dpy, xinfo.gc, None);
+
 	XFreeGC(xinfo.dpy, gc);
 }
