@@ -176,9 +176,12 @@ main(int argc, char* argv[])
 		errx(1, "can't open display %s", XDisplayName(display));
 
 #ifdef __OpenBSD_
-	unveil("/", "");
-	unveil(NULL, NULL);
-	pledge("stdio");
+	if (unveil("/", "") == -1)
+		err(1, "unveil");
+	if (unveil(NULL, NULL) == -1)
+		err(1, "unveil");
+	if (pledge("stdio") == -1)
+		err(1, "pledge");
 #endif
 
 	/* setup exit handler pipe that we'll poll on */
