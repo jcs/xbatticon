@@ -120,11 +120,6 @@ struct icon_map_entry {
 	{ icon_charging_xpm, CHARGING_ICON_VALUE },
 };
 
-const struct option longopts[] = {
-	{ "display",	required_argument,	NULL,	'd' },
-	{ NULL,		0,			NULL,	0 }
-};
-
 extern char *__progname;
 
 void		killer(int sig);
