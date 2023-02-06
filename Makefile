@@ -20,7 +20,7 @@ X11BASE?=	/usr/X11R6
 PKGLIBS=	x11 xpm
 
 CC?=		cc
-CFLAGS+=	-O2 -Wall -Wunused \
+CFLAGS+=	-O2 -Wall -Wunused -Wshadow \
 		-Wmissing-prototypes -Wstrict-prototypes -Wpointer-sign \
 		`pkg-config --cflags ${PKGLIBS}`
 LDFLAGS+=	`pkg-config --libs ${PKGLIBS}`
