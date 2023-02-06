@@ -1,0 +1,29 @@
+.Dd $Mdocdate$
+.Dt XBATTICON 1
+.Os
+.Sh NAME
+.Nm xbatticon
+.Nd show battery charge level and AC status as an iconified X11 window
+.Sh SYNOPSIS
+.Nm
+.Op Fl d Ar display
+.Op Fl i Ar interval
+.Sh DESCRIPTION
+.Nm
+shows the current battery charge status as an icon, overlaying an icon when
+connected to AC power.
+Un-iconifying the program shows the same icon in a small window.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl d Ar display
+Use a different X11 display named
+.Ar display .
+.It Fl i Ar interval
+Update the battery status every
+.Ar interval
+seconds instead of the default 10.
+.El
+.Sh AUTHORS
+.Nm
+was written by
+.An joshua stein Aq Mt jcs@jcs.org .

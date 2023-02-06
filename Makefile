@@ -26,6 +26,7 @@ CFLAGS+=	-O2 -Wall -Wunused -Wshadow \
 LDFLAGS+=	`pkg-config --libs ${PKGLIBS}`
 
 BINDIR=		$(PREFIX)/bin
+MANDIR=		$(PREFIX)/man/man1
 
 SRC=		xbatticon.c
 
@@ -33,6 +34,7 @@ OBJ=		${SRC:.c=.o}
 ICONS!=		echo icons/*
 
 BIN=		xbatticon
+MAN=		xbatticon.1
 
 all: $(BIN)
 
@@ -42,8 +44,9 @@ $(BIN): $(OBJ)
 	$(CC) -o $@ $(OBJ) $(LDFLAGS)
 
 install: all
-	mkdir -p $(BINDIR) $(MANDIR)
+	mkdir -p $(DESTDIR)$(BINDIR) $(DESTDIR)$(MANDIR)
 	install -s $(BIN) $(BINDIR)
+	install -m 644 $(MAN) $(DESTDIR)$(MANDIR)/$(MAN)
 
 clean:
 	rm -f $(BIN) $(OBJ)
