@@ -171,10 +171,6 @@ main(int argc, char* argv[])
 		errx(1, "can't open display %s", XDisplayName(display));
 
 #ifdef __OpenBSD_
-	if (unveil("/", "") == -1)
-		err(1, "unveil");
-	if (unveil(NULL, NULL) == -1)
-		err(1, "unveil");
 	if (pledge("stdio") == -1)
 		err(1, "pledge");
 #endif
@@ -398,11 +394,11 @@ update_icon(void)
 	XSetClipOrigin(xinfo.dpy, xinfo.gc, xo, yo);
 	XClearWindow(xinfo.dpy, xinfo.win);
 	XSetFunction(xinfo.dpy, xinfo.gc, GXcopy);
-	XCopyArea(xinfo.dpy, (power.ac ? icon_map[icon].charging_pm :
-	    icon_map[icon].pm), xinfo.win, xinfo.gc,
+	XCopyArea(xinfo.dpy,
+	    (power.ac ? icon_map[icon].charging_pm : icon_map[icon].pm),
+	    xinfo.win, xinfo.gc,
 	    0, 0,
-	    icon_map[icon].pm_attrs.width,
-	    icon_map[icon].pm_attrs.height,
+	    icon_map[icon].pm_attrs.width, icon_map[icon].pm_attrs.height,
 	    xo, yo);
 }
 
