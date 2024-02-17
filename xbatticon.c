@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#define _GNU_SOURCE
+
 #include <err.h>
 #include <getopt.h>
 #include <poll.h>
@@ -33,9 +35,13 @@
 
 #ifdef __OpenBSD__
 #include <machine/apmvar.h>
-#define APMDEV "/dev/apm"
-#else
-#error "reading battery status is not supported on this platform"
+#endif
+
+#ifdef __linux__
+#include <time.h>
+#include <dirent.h>
+#include <errno.h>
+#define timespecsub(a,b,d) ((d)->tv_sec = (a)->tv_sec - (b)->tv_sec)
 #endif
 
 #include "icons/icon_000.xpm"
@@ -124,9 +130,11 @@ extern char *__progname;
 
 void		killer(int sig);
 void		usage(void);
+void		read_power(void);
 void		update_power(void);
 void		update_icon(void);
 void		build_charging_icon(struct icon_map_entry *);
+int		battfd(void);
 
 int		exit_msg[2];
 int		power_check_secs = 10;
@@ -135,6 +143,88 @@ struct icon_map_entry *charging_icon;
 
 #define WINDOW_WIDTH	200
 #define WINDOW_HEIGHT	100
+
+#ifdef __OpenBSD__
+#define APMDEV "/dev/apm"
+
+int
+battfd(void)
+{
+	int fd;
+
+	fd = open(APMDEV, O_RDONLY);
+	if (fd == -1)
+		perror(APMDEV);
+	return fd;
+}
+
+#elif defined(__linux__)
+#define SYSFS_POWER_SUPPLIES "/sys/class/power_supply/"
+#define SYSFS_BATTERY_TYPE "Battery"
+
+int
+battfd(void)
+{
+	struct dirent *supply;
+	int capafd = -1;
+	DIR *supplies;
+
+	supplies = opendir(SYSFS_POWER_SUPPLIES);
+	if (supplies == NULL) {
+		perror(SYSFS_POWER_SUPPLIES);
+		return -1;
+	}
+
+	while (1) {
+		char type_str[sizeof(SYSFS_BATTERY_TYPE)-1];
+		int supply_dir;
+		int typefd;
+
+		errno = 0;
+		supply = readdir(supplies);
+		if (errno) {
+			perror(SYSFS_POWER_SUPPLIES);
+			break;
+		}
+
+		if (supply == NULL)
+			break;
+
+		supply_dir = openat(dirfd(supplies), supply->d_name, O_RDONLY | O_DIRECTORY);
+		if (supply_dir == -1)
+			continue;
+
+		typefd = openat(supply_dir, "type", O_RDONLY);
+		if (typefd == -1) {
+			close(supply_dir);
+			continue;
+		}
+
+		if (read(typefd, type_str, sizeof(type_str)) != sizeof(type_str)) {
+			close(supply_dir);
+			close(typefd);
+			continue;
+		}
+
+		close(typefd);
+		if (memcmp(type_str, SYSFS_BATTERY_TYPE, sizeof(type_str))) {
+			close(supply_dir);
+			continue;
+		}
+
+		capafd = openat(supply_dir, "capacity", O_RDONLY);
+		close(supply_dir);
+		if (capafd != -1)
+			break;
+	}
+
+	closedir(supplies);
+	return capafd;
+}
+
+#else
+#error "reading battery status is not supported on this platform"
+#endif
 
 int
 main(int argc, char* argv[])
@@ -164,8 +254,8 @@ main(int argc, char* argv[])
 	argc -= optind;
 	argv += optind;
 
-	if ((power.apmfd = open(APMDEV, O_RDONLY)) == -1)
-		err(1, "failed to open %s", APMDEV);
+	if ((power.apmfd = battfd()) == -1)
+		err(1, "failed to open the battery");
 
 	if (!(xinfo.dpy = XOpenDisplay(display)))
 		errx(1, "can't open display %s", XDisplayName(display));
@@ -305,26 +395,58 @@ usage(void)
 	exit(1);
 }
 
+#ifdef __OpenBSD__
 void
-update_power(void)
+read_power(void)
 {
 	struct apm_power_info apm_info;
-	int last_ac = power.ac;
-	int last_remaining = power.remaining;
-
-	clock_gettime(CLOCK_MONOTONIC, &last_power_check);
 
 	if (ioctl(power.apmfd, APM_IOC_GETPOWER, &apm_info) == -1)
 		err(1, "APM_IOC_GETPOWER");
 
 	if (apm_info.battery_life == APM_BATT_LIFE_UNKNOWN)
 		power.remaining = 0;
-	else if (apm_info.battery_life > 100)
-		power.remaining = 100;
 	else
 		power.remaining = apm_info.battery_life;
 
 	power.ac = (apm_info.ac_state == APM_AC_ON);
+}
+#endif
+
+#ifdef __linux__
+void
+read_power(void)
+{
+	char bp[4] = { 0, };
+
+	if (lseek(power.apmfd, 0, SEEK_SET) == -1) {
+		perror ("SEEK_SET");
+		power.remaining = 0;
+		return;
+	}
+
+	if (read(power.apmfd, bp, 3) == -1) {
+		perror ("read");
+		power.remaining = 0;
+		return;
+	}
+
+	power.remaining = atoi(bp);
+}
+#endif
+
+void
+update_power(void)
+{
+	int last_ac = power.ac;
+	int last_remaining = power.remaining;
+
+	clock_gettime(CLOCK_MONOTONIC, &last_power_check);
+
+	read_power();
+
+	if (power.remaining > 100)
+		power.remaining = 100;
 
 	/* well timmy, sometimes batteries die a little bit when we use them */
 	if (power.ac && power.remaining >= 96)
