@@ -15,7 +15,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifdef __linux__
 #define _GNU_SOURCE
+#endif
 
 #include <err.h>
 #include <getopt.h>
