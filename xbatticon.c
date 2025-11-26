@@ -34,6 +34,7 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/xpm.h>
+#include <X11/Xatom.h>
 
 #ifdef __OpenBSD__
 #include <machine/apmvar.h>
@@ -43,6 +44,12 @@
 #include <time.h>
 #include <dirent.h>
 #include <errno.h>
+#define timespecsub(a,b,d) ((d)->tv_sec = (a)->tv_sec - (b)->tv_sec)
+#endif
+
+#ifdef __FreeBSD__
+#include <sys/sysctl.h>
+#include <time.h>
 #define timespecsub(a,b,d) ((d)->tv_sec = (a)->tv_sec - (b)->tv_sec)
 #endif
 
@@ -127,6 +134,9 @@ struct icon_map_entry {
 	ICON_ENTRY(100),
 	{ icon_charging_xpm, CHARGING_ICON_VALUE },
 };
+
+#define WINDOW_CLASS "xbatticon"
+#define WINDOW_INSTANCE "xbatticon"
 
 extern char *__progname;
 
@@ -224,6 +234,19 @@ battfd(void)
 	return capafd;
 }
 
+#elif defined(__FreeBSD__)
+#define ACPI_BATTERY "/dev/acpi"
+
+int
+battfd(void)
+{
+    int fd;
+
+    fd = open(ACPI_BATTERY, O_RDONLY);
+    if (fd == -1)
+        perror(ACPI_BATTERY);
+    return fd;
+}
 #else
 #error "reading battery status is not supported on this platform"
 #endif
@@ -286,6 +309,14 @@ main(int argc, char* argv[])
 	gcv.background = 0;
 	xinfo.gc = XCreateGC(xinfo.dpy, xinfo.win, GCForeground | GCBackground,
 	    &gcv);
+
+	XClassHint *class_hint = XAllocClassHint();
+    if (class_hint) {
+    	class_hint->res_name = WINDOW_INSTANCE;
+    	class_hint->res_class = WINDOW_CLASS;
+    	XSetClassHint(xinfo.dpy, xinfo.win, class_hint);
+    	XFree(class_hint);
+	}
 
 	/* load XPMs */
 	for (i = 0; i < sizeof(icon_map) / sizeof(icon_map[0]); i++) {
@@ -434,6 +465,29 @@ read_power(void)
 	}
 
 	power.remaining = atoi(bp);
+}
+#endif
+
+#ifdef __FreeBSD__
+void
+read_power(void)
+{
+    int remaining, ac;
+    size_t len = sizeof(int);
+
+    if (sysctlbyname("hw.acpi.battery.life", &remaining, &len, NULL, 0) == -1) {
+        perror("sysctl hw.acpi.battery.life");
+        power.remaining = 0;
+    } else {
+        power.remaining = remaining;
+    }
+
+    if (sysctlbyname("hw.acpi.acline", &ac, &len, NULL, 0) == -1) {
+        perror("sysctl hw.acpi.acline");
+        power.ac = 0;
+    } else {
+        power.ac = (ac == 1);
+    }
 }
 #endif
 
